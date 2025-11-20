@@ -11,6 +11,13 @@ from pypdevs.simulator import Simulator
 from rl.replay_buffer import ReplayBuffer
 from config import STATUS_RUNNING, STATUS_WIN, STATUS_FAIL
 
+try:
+    from torch.utils.tensorboard import SummaryWriter  # type: ignore
+    TENSORBOARD_AVAILABLE = True
+except ImportError:
+    TENSORBOARD_AVAILABLE = False
+    print("⚠️  TensorBoard를 사용하려면 설치하세요: pip3 install tensorboard")
+
 
 class DQNTrainer:
     """
@@ -29,7 +36,9 @@ class DQNTrainer:
         buffer_size=10000,
         log_interval=10,
         save_interval=100,
-        model_path="models/dqn_worm_robot.pth"
+        model_path="models/dqn_worm_robot.pth",
+        use_tensorboard=True,
+        tensorboard_dir="runs/worm_robot_dqn"
     ):
         """
         Args:
@@ -42,6 +51,8 @@ class DQNTrainer:
             log_interval: 로그 출력 간격
             save_interval: 모델 저장 간격
             model_path: 모델 저장 경로
+            use_tensorboard: TensorBoard 사용 여부
+            tensorboard_dir: TensorBoard 로그 디렉토리
         """
         self.agent = agent
         self.create_system_fn = create_system_fn
@@ -54,6 +65,13 @@ class DQNTrainer:
         
         # Replay Buffer
         self.replay_buffer = ReplayBuffer(capacity=buffer_size)
+        
+        # TensorBoard
+        self.writer = None
+        if use_tensorboard and TENSORBOARD_AVAILABLE:
+            self.writer = SummaryWriter(tensorboard_dir)
+            print(f"📊 TensorBoard 로깅 활성화: {tensorboard_dir}")
+            print(f"   실행: tensorboard --logdir=runs")
         
         # 통계
         self.stats = {
@@ -105,6 +123,23 @@ class DQNTrainer:
             # Epsilon 감소
             self.agent.update_epsilon()
             
+            # TensorBoard 로깅
+            if self.writer is not None:
+                self.writer.add_scalar('Reward/episode', episode_reward, episode)
+                self.writer.add_scalar('Steps/episode', episode_steps, episode)
+                self.writer.add_scalar('Loss/episode', self.stats["episode_losses"][-1], episode)
+                self.writer.add_scalar('Epsilon', self.agent.epsilon, episode)
+                self.writer.add_scalar('Success/total', self.stats["success_count"], episode)
+                self.writer.add_scalar('Fail/total', self.stats["fail_count"], episode)
+                
+                # 성공/실패를 0 또는 1로 기록
+                if episode_status == STATUS_WIN:
+                    self.writer.add_scalar('Result/win', 1, episode)
+                    self.writer.add_scalar('Result/fail', 0, episode)
+                elif episode_status == STATUS_FAIL:
+                    self.writer.add_scalar('Result/win', 0, episode)
+                    self.writer.add_scalar('Result/fail', 1, episode)
+            
             # 로그 출력
             if (episode + 1) % self.log_interval == 0:
                 recent = self.log_interval
@@ -128,6 +163,11 @@ class DQNTrainer:
         
         # 최종 모델 저장
         self._save_model()
+        
+        # TensorBoard writer 종료
+        if self.writer is not None:
+            self.writer.close()
+            print("\n📊 TensorBoard 로그 저장 완료")
         
         print("\n" + "=" * 60)
         print("학습 완료!")
@@ -174,30 +214,36 @@ class DQNTrainer:
                 state = system.controller._observation_to_state(obs)
                 final_states[rid] = state
         
-        # 보상 계산
+        # 보상 계산 (개선된 버전)
         total_reward = 0.0
         for rid in initial_states.keys():
-            # 간단한 보상 설계
-            if final_status == STATUS_WIN:
-                reward = 100.0
-            elif final_status == STATUS_FAIL:
-                reward = -50.0
+            if rid in system.environment.state.robot_positions:
+                pos = system.environment.state.robot_positions[rid]
+                tail = pos["tail"]
+                head = pos["head"]
+                goal_head = system.environment.robot_goals.get(rid, (0, 0))
+                
+                # 거리 계산
+                tail_dist = abs(tail[0]) + abs(tail[1])
+                head_dist = abs(head[0] - goal_head[0]) + abs(head[1] - goal_head[1])
+                total_dist = tail_dist + head_dist
+                
+                # 기본 보상: 거리가 가까울수록 높은 보상
+                reward = (12 - total_dist) * 10  # 0~120점
+                
+                # 성공 보너스
+                if final_status == STATUS_WIN:
+                    reward += 300.0
+                elif final_status == STATUS_FAIL:
+                    reward -= 100.0
+                
+                # 부분 성공 보너스
+                if tail == (0, 0):
+                    reward += 50.0  # 뒷발 도착
+                if head == goal_head:
+                    reward += 50.0  # 앞발 도착
             else:
-                # 목표까지 거리 기반
-                if rid in system.environment.state.robot_positions:
-                    pos = system.environment.state.robot_positions[rid]
-                    tail = pos["tail"]
-                    head = pos["head"]
-                    goal_head = system.environment.robot_goals.get(rid, (0, 0))
-                    
-                    tail_dist = abs(tail[0]) + abs(tail[1])
-                    head_dist = abs(head[0] - goal_head[0]) + abs(head[1] - goal_head[1])
-                    total_dist = tail_dist + head_dist
-                    
-                    # 거리가 가까울수록 높은 보상
-                    reward = -total_dist * 2.0
-                else:
-                    reward = -50.0
+                reward = -100.0  # 로봇이 사라짐
             
             total_reward += reward
             

@@ -231,39 +231,49 @@ class Environment(AtomicDEVS):
         return observations
     
     def _calculate_rewards(self):
-        """각 로봇의 보상 계산"""
+        """각 로봇의 보상 계산 (개선된 버전)"""
         for rid, pos_data in self.state.robot_positions.items():
             reward = 0.0
             
-            # 1. 기본 이동 비용
-            reward -= 0.1
-            
-            # 2. 목표까지 거리 기반 보상
+            # 현재 위치
             tail = pos_data["tail"]
             head = pos_data["head"]
             goal_head = self.robot_goals.get(rid, (0, 0))
             
-            # 뒷발 목표까지 거리 (맨해튼 거리)
+            # 목표까지 거리
             tail_dist = abs(tail[0]) + abs(tail[1])
-            # 앞발 목표까지 거리
             head_dist = abs(head[0] - goal_head[0]) + abs(head[1] - goal_head[1])
-            # 전체 거리
-            current_dist = tail_dist + head_dist
+            total_dist = tail_dist + head_dist
             
-            # 이전 거리와 비교
+            # 1. 거리 기반 보상 (더 강하게!)
+            # 최대 거리 12 (7x7 격자 대각선) → 0~12를 0~10으로 정규화
+            distance_reward = (12 - total_dist) / 12 * 10
+            reward += distance_reward
+            
+            # 2. 거리 감소 보너스 (가까워지면 추가 보상)
             if rid in self.state.prev_distances:
                 prev_dist = self.state.prev_distances[rid]
-                # 가까워지면 보상, 멀어지면 페널티
-                reward += (prev_dist - current_dist) * 1.0
+                if total_dist < prev_dist:
+                    # 가까워지면 큰 보너스!
+                    reward += (prev_dist - total_dist) * 5.0
+                else:
+                    # 멀어지면 페널티
+                    reward += (prev_dist - total_dist) * 2.0
             
             # 현재 거리 저장
-            self.state.prev_distances[rid] = current_dist
+            self.state.prev_distances[rid] = total_dist
             
-            # 3. 목표 도달 시 큰 보상
+            # 3. 뒷발이 중앙에 도달 (중간 목표!)
+            if tail == (0, 0):
+                reward += 50.0
+            
+            # 4. 앞발이 목표에 도달 (중간 목표!)
+            if head == goal_head:
+                reward += 50.0
+            
+            # 5. 완전 성공 (둘 다!)
             if tail == (0, 0) and head == goal_head:
-                reward += 100.0
-            
-            # 4. 충돌/격자 이탈은 나중에 _check_fail에서 처리
+                reward += 200.0  # 추가 보너스
             
             self.state.rewards[rid] = reward
     

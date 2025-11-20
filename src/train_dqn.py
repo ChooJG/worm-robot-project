@@ -43,25 +43,25 @@ def main():
     agent = DQNAgent(
         state_dim=STATE_DIM,
         action_dim=ACTION_DIM,
-        learning_rate=0.001,
+        learning_rate=0.0005,    # 0.001 → 0.0005 (더 안정적)
         gamma=0.99,
         epsilon_start=1.0,
-        epsilon_end=0.01,
-        epsilon_decay=0.995,
-        use_target_net=False,  # 간단하게: Target Network 사용 안 함
-        device="cpu"  # GPU 사용 시 "cuda"
+        epsilon_end=0.05,        # 0.01 → 0.05 (더 많은 탐험)
+        epsilon_decay=0.998,     # 0.995 → 0.998 (더 천천히 감소)
+        use_target_net=False,
+        device="cpu"
     )
     
     # 트레이너 생성
     trainer = DQNTrainer(
         agent=agent,
         create_system_fn=create_system,
-        num_episodes=100,         # 테스트용으로 100 에피소드
-        termination_time=200,     # 시뮬레이션 최대 시간 (초)
+        num_episodes=5000,              # 개선된 보상으로 재학습
+        termination_time=100,     # 시뮬레이션 최대 시간 (200 → 100초로 단축)
         batch_size=32,
         buffer_size=10000,
-        log_interval=10,
-        save_interval=50,
+        log_interval=10,          # 10 에피소드마다 로그 출력
+        save_interval=50,         # 50 에피소드마다 모델 저장
         model_path="outputs/dqn_worm_robot.pth"
     )
     

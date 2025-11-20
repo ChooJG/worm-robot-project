@@ -5,7 +5,7 @@ Worm Robot Simulation - System Model
 
 from pypdevs.DEVS import CoupledDEVS
 
-from config import INITIAL_ROBOT_CONFIGS, NUM_ROBOTS
+from config import get_initial_robot_configs, NUM_ROBOTS
 from robot import Robot
 from environment import Environment
 from controller import Controller
@@ -32,9 +32,12 @@ class WormRobotSystem(CoupledDEVS):
         """
         CoupledDEVS.__init__(self, "WormRobotSystem")
 
+        # 매 시뮬레이션마다 새로운 랜덤 위치 생성
+        robot_configs = get_initial_robot_configs()
+
         # 로봇 생성
         self.robots = []
-        for config in INITIAL_ROBOT_CONFIGS:
+        for config in robot_configs:
             robot = Robot(
                 robot_id=config["id"],
                 initial_head=config["head"],
@@ -45,7 +48,7 @@ class WormRobotSystem(CoupledDEVS):
 
         # 환경 생성
         self.environment = self.addSubModel(
-            Environment(num_robots=NUM_ROBOTS, initial_positions=INITIAL_ROBOT_CONFIGS)
+            Environment(num_robots=NUM_ROBOTS, initial_positions=robot_configs)
         )
 
         # 컨트롤러 생성

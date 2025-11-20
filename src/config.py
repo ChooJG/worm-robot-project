@@ -3,6 +3,8 @@ Worm Robot Simulation - Configuration
 상수 및 설정값 관리
 """
 
+import random
+
 # ========================================
 # 격자 설정
 # ========================================
@@ -54,15 +56,76 @@ STATUS_FAIL = "fail"
 # 로봇 초기 설정
 # ========================================
 
-# 4대 로봇 초기 위치 (격자 모서리에 배치)
-INITIAL_ROBOT_CONFIGS = [
-    {"id": 0, "head": (3, 3), "tail": (2, 3), "dir": 0},   # 우상단, 동쪽 향함
-    {"id": 1, "head": (-3, 3), "tail": (-3, 2), "dir": 1},  # 좌상단, 남쪽 향함
-    {"id": 2, "head": (-3, -3), "tail": (-2, -3), "dir": 0}, # 좌하단, 동쪽 향함
-    {"id": 3, "head": (3, -3), "tail": (3, -2), "dir": 3}   # 우하단, 북쪽 향함
-]
+NUM_ROBOTS = 4
 
-NUM_ROBOTS = len(INITIAL_ROBOT_CONFIGS)
+
+def generate_random_robot_configs(num_robots=NUM_ROBOTS):
+    """
+    격자 내에서 랜덤한 위치에 로봇들을 배치합니다.
+    로봇끼리 겹치지 않도록 보장합니다.
+    
+    Returns:
+        list: 로봇 설정 리스트 [{"id": int, "head": tuple, "tail": tuple, "dir": int}, ...]
+    """
+    occupied_cells = set()
+    robot_configs = []
+    
+    max_attempts = 1000  # 무한 루프 방지
+    
+    for robot_id in range(num_robots):
+        placed = False
+        
+        for _ in range(max_attempts):
+            # 랜덤 방향 선택 (0=동, 1=남, 2=서, 3=북)
+            direction = random.randint(0, 3)
+            dx, dy = DIRECTIONS[direction]
+            
+            # 랜덤 head 위치 선택
+            head_x = random.randint(GRID_MIN, GRID_MAX)
+            head_y = random.randint(GRID_MIN, GRID_MAX)
+            head = (head_x, head_y)
+            
+            # tail 위치 계산 (head 반대 방향)
+            tail_x = head_x - dx
+            tail_y = head_y - dy
+            tail = (tail_x, tail_y)
+            
+            # tail이 격자 범위 내에 있는지 확인
+            if not (GRID_MIN <= tail_x <= GRID_MAX and GRID_MIN <= tail_y <= GRID_MAX):
+                continue
+            
+            # head와 tail 모두 비어있는지 확인
+            if head not in occupied_cells and tail not in occupied_cells:
+                occupied_cells.add(head)
+                occupied_cells.add(tail)
+                
+                robot_configs.append({
+                    "id": robot_id,
+                    "head": head,
+                    "tail": tail,
+                    "dir": direction
+                })
+                
+                placed = True
+                break
+        
+        if not placed:
+            raise RuntimeError(
+                f"로봇 {robot_id}를 배치할 수 없습니다. "
+                f"격자 크기({GRID_SIZE}x{GRID_SIZE})에 비해 로봇 수({num_robots})가 너무 많을 수 있습니다."
+            )
+    
+    return robot_configs
+
+
+def get_initial_robot_configs():
+    """
+    매 시뮬레이션마다 새로운 랜덤 로봇 배치를 생성합니다.
+    
+    Returns:
+        list: 로봇 설정 리스트
+    """
+    return generate_random_robot_configs(NUM_ROBOTS)
 
 
 # ========================================

@@ -23,6 +23,8 @@ class EnvironmentState:
         self.step_count = 0
         self.phase = "INIT"        # 상태: INIT, IDLE, PROCESSING
         self.pending_updates = []  # 대기 중인 로봇 업데이트
+        self.rewards = {}          # {robot_id: reward} - 각 로봇의 보상
+        self.prev_distances = {}   # {robot_id: distance} - 이전 스텝의 목표까지 거리
 
     def __str__(self):
         return (
@@ -139,6 +141,9 @@ class Environment(AtomicDEVS):
 
         self.state.step_count += 1
 
+        # 보상 계산 (승패 판정 전에 수행)
+        self._calculate_rewards()
+
         # 승패 판정
         if self._check_fail():
             self.state.status = STATUS_FAIL
@@ -224,3 +229,44 @@ class Environment(AtomicDEVS):
             }
 
         return observations
+    
+    def _calculate_rewards(self):
+        """각 로봇의 보상 계산"""
+        for rid, pos_data in self.state.robot_positions.items():
+            reward = 0.0
+            
+            # 1. 기본 이동 비용
+            reward -= 0.1
+            
+            # 2. 목표까지 거리 기반 보상
+            tail = pos_data["tail"]
+            head = pos_data["head"]
+            goal_head = self.robot_goals.get(rid, (0, 0))
+            
+            # 뒷발 목표까지 거리 (맨해튼 거리)
+            tail_dist = abs(tail[0]) + abs(tail[1])
+            # 앞발 목표까지 거리
+            head_dist = abs(head[0] - goal_head[0]) + abs(head[1] - goal_head[1])
+            # 전체 거리
+            current_dist = tail_dist + head_dist
+            
+            # 이전 거리와 비교
+            if rid in self.state.prev_distances:
+                prev_dist = self.state.prev_distances[rid]
+                # 가까워지면 보상, 멀어지면 페널티
+                reward += (prev_dist - current_dist) * 1.0
+            
+            # 현재 거리 저장
+            self.state.prev_distances[rid] = current_dist
+            
+            # 3. 목표 도달 시 큰 보상
+            if tail == (0, 0) and head == goal_head:
+                reward += 100.0
+            
+            # 4. 충돌/격자 이탈은 나중에 _check_fail에서 처리
+            
+            self.state.rewards[rid] = reward
+    
+    def get_rewards(self):
+        """현재 보상 반환 (RL 학습용)"""
+        return self.state.rewards.copy()

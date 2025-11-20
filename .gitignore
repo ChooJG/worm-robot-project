@@ -11,3 +11,5 @@
 test/output/*
 .claude
 .idea
+worm-robot/
+outputs/

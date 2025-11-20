@@ -138,11 +138,13 @@ class Controller(AtomicDEVS):
             ...
         """
         if self.rl_agent is not None:
-            # TODO: RL 에이전트 연동 구현
-            # state = self._observation_to_state(obs)
-            # action = self.rl_agent.get_action(state)
-            # return {"type": action}
-            pass
+            # RL 에이전트 연동
+            state = self._observation_to_state(obs)
+            action_idx = self.rl_agent.get_action(state, training=True)
+            
+            # 행동 인덱스를 행동 타입으로 변환
+            action_types = [ACTION_MOVE, ACTION_ROTATE_CW, ACTION_ROTATE_CCW]
+            return {"type": action_types[action_idx]}
 
         # 기본 휴리스틱 정책
         goal_pos = obs["goal_position"]
@@ -169,18 +171,49 @@ class Controller(AtomicDEVS):
             obs: 관찰 데이터
 
         Returns:
-            강화학습 상태 표현 (예: numpy array, dict 등)
-
-        TODO: 강화학습 프레임워크에 맞게 구현
+            강화학습 상태 표현 (numpy array)
         """
-        # 예시: 상태 벡터 구성
-        # state = np.array([
-        #     obs["own_head"][0], obs["own_head"][1],
-        #     obs["own_tail"][0], obs["own_tail"][1],
-        #     obs["own_direction"],
-        #     obs["distance_to_goal"],
-        #     len(obs["detected_robots"]),
-        #     ...
-        # ])
-        # return state
-        pass
+        import numpy as np
+        
+        # 자신의 위치 (정규화: -3~3 → -1~1)
+        own_head = obs["own_head"]
+        own_tail = obs["own_tail"]
+        
+        # 목표 위치
+        goal_position = obs["goal_position"]
+        
+        # 목표까지 벡터 계산
+        vector_to_goal_head = (goal_position[0] - own_head[0], goal_position[1] - own_head[1])
+        vector_to_goal_tail = (0 - own_tail[0], 0 - own_tail[1])  # 뒷발은 항상 (0,0)
+        
+        # 방향 (0~3)
+        direction = obs["own_direction"]
+        
+        # 주변 로봇 정보 (간단하게: 개수와 가장 가까운 로봇까지 거리)
+        detected = obs["detected_robots"]
+        num_nearby = len(detected)
+        
+        closest_dist = 10.0  # 기본값 (멀리 있음)
+        if detected:
+            for robot in detected:
+                dist = abs(robot["head"][0] - own_head[0]) + abs(robot["head"][1] - own_head[1])
+                closest_dist = min(closest_dist, dist)
+        
+        # 상태 벡터 구성 (13차원)
+        state = np.array([
+            own_head[0] / 3.0,          # -1 ~ 1
+            own_head[1] / 3.0,          # -1 ~ 1
+            own_tail[0] / 3.0,          # -1 ~ 1
+            own_tail[1] / 3.0,          # -1 ~ 1
+            direction / 3.0,            # 0 ~ 1
+            vector_to_goal_head[0] / 6.0,  # -1 ~ 1
+            vector_to_goal_head[1] / 6.0,  # -1 ~ 1
+            vector_to_goal_tail[0] / 6.0,  # -1 ~ 1
+            vector_to_goal_tail[1] / 6.0,  # -1 ~ 1
+            goal_position[0] / 3.0,     # -1 ~ 1
+            goal_position[1] / 3.0,     # -1 ~ 1
+            num_nearby / 3.0,           # 0 ~ 1
+            closest_dist / 10.0         # 0 ~ 1
+        ], dtype=np.float32)
+        
+        return state

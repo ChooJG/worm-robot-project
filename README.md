@@ -1,8 +1,10 @@
+# 성혁 version
+
 # Worm Robot Simulation
 
 2관절 로봇의 협력 경로 탐색 시뮬레이션 프로젝트입니다. DEVS(Discrete Event System Specification) 모델링을 사용하여 구현되었으며, 향후 강화학습 통합을 위해 모듈화되었습니다.
 
-## 설치 방법
+## 설치 방법 
 
 먼저 PyPDEVS 라이브러리를 설치해야 합니다
 

@@ -22,7 +22,7 @@ from utils import add_pos
 # ========================================
 
 class RobotState:
-    """로봇의 내부 상태를 표현하는 클래스 git 연습1"""
+    """로봇의 내부 상태를 표현하는 클래스 git 연습24dddd"""
 
     def __init__(self, robot_id, head_pos, tail_pos, direction):
         """

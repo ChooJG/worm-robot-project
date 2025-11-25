@@ -191,4 +191,39 @@ agent = DQNAgent(state_dim=..., action_dim=3)
 system = run_simulation(rl_agent=agent)
 ```
 
+## 강화학습 빠른 시작
+
+### 🎓 Curriculum Learning (추천!)
+
+**Sparse Reward 문제 해결**: 로봇 4개 동시 성공이 어려워 학습이 안되는 문제를 해결합니다.
+
+**해결 방법**: 
+1. 로봇 1개부터 시작 → 기본 행동 학습 (성공 확률 20%)
+2. 로봇 2개 → 충돌 회피 학습 (이전 모델 파인튜닝)
+3. 로봇 4개 → 멀티 로봇 협력 (이전 모델 파인튜닝)
+
+**실행 방법**:
+```bash
+cd src
+python3.11 train_curriculum.py
+```
+
+**상세 가이드**: [CURRICULUM_LEARNING.md](./CURRICULUM_LEARNING.md) 참고
+
+### 📊 일반 DQN 학습
+
+```bash
+cd src
+python3.11 train_dqn.py
+```
+
+**상세 가이드**: [QUICKSTART_DQN.md](./QUICKSTART_DQN.md) 참고
+
+### 🎯 학습된 모델 평가
+
+```bash
+cd src
+python3.11 evaluate.py --model outputs/curriculum_phase3_4robots.pth --episodes 50
+```
+
 

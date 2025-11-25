@@ -180,101 +180,92 @@ class DQNTrainer:
 
     def _run_episode(self):
         """
-        단일 에피소드 실행
+        단일 에피소드 실행 (Step-by-Step 방식)
         
-        간단한 버전: 에피소드 전체 실행 후 최종 상태 기반 보상
-        향후 개선: 스텝별 경험 수집
+        매 스텝마다 경험을 수집하여 Replay Buffer에 추가
         """
         # 새로운 시스템 생성 (랜덤 초기화)
         system = self.create_system_fn(rl_agent=self.agent)
+        num_robots = len(system.robots)
         
-        # 초기 상태 수집
-        initial_states = {}
-        for rid in range(system.controller.num_robots):
-            if rid in system.environment.state.robot_positions:
-                obs = system.environment._generate_observations()[rid]
-                state = system.controller._observation_to_state(obs)
-                initial_states[rid] = state
+        # 에피소드 통계
+        episode_reward = 0.0
+        step_count = 0
+        max_steps = self.termination_time  # 최대 스텝 수 제한
         
-        # 시뮬레이터 설정 및 실행
-        sim = Simulator(system)
-        sim.setClassicDEVS()
-        sim.setTerminationTime(self.termination_time)
-        sim.simulate()
-        
-        # 최종 상태 및 보상 수집
-        final_status = system.environment.state.status
-        step_count = system.environment.state.step_count
-        
-        # 각 로봇의 최종 상태
-        final_states = {}
-        for rid in range(system.controller.num_robots):
-            if rid in system.environment.state.robot_positions:
-                obs = system.environment._generate_observations()[rid]
-                state = system.controller._observation_to_state(obs)
-                final_states[rid] = state
-        
-        # 보상 계산 (개선된 버전)
-        total_reward = 0.0
-        for rid in initial_states.keys():
-            if rid in system.environment.state.robot_positions:
-                pos = system.environment.state.robot_positions[rid]
-                tail = pos["tail"]
-                head = pos["head"]
-                goal_head = system.environment.robot_goals.get(rid, (0, 0))
-                
-                # 거리 계산
-                tail_dist = abs(tail[0]) + abs(tail[1])
-                head_dist = abs(head[0] - goal_head[0]) + abs(head[1] - goal_head[1])
-                total_dist = tail_dist + head_dist
-                
-                # 기본 보상: 거리가 가까울수록 높은 보상
-                reward = (12 - total_dist) * 10  # 0~120점
-                
-                # 성공 보너스
-                if final_status == STATUS_WIN:
-                    reward += 300.0
-                elif final_status == STATUS_FAIL:
-                    reward -= 100.0
-                
-                # 부분 성공 보너스
-                if tail == (0, 0):
-                    reward += 50.0  # 뒷발 도착
-                if head == goal_head:
-                    reward += 50.0  # 앞발 도착
-            else:
-                reward = -100.0  # 로봇이 사라짐
+        # 에피소드 실행 (스텝별)
+        while not system.is_done() and step_count < max_steps:
+            # 1. 현재 상태 수집
+            current_states = {}
+            for rid in range(num_robots):
+                if rid in system.environment.state.robot_positions:
+                    state = system.get_state_for_robot(rid)
+                    current_states[rid] = state
             
-            total_reward += reward
+            # 2. 각 로봇의 행동 선택
+            actions = {}
+            for rid in current_states.keys():
+                action = self.agent.get_action(current_states[rid])
+                actions[rid] = action
             
-            # 경험 저장 (초기 상태 → 최종 상태)
-            if rid in initial_states and rid in final_states:
-                # 행동은 간략화 (실제로는 각 로봇의 행동 기록 필요)
-                action = 0  # 임시
-                done = (final_status != STATUS_RUNNING)
-                
-                self.replay_buffer.add(
-                    initial_states[rid],
-                    action,
-                    reward,
-                    final_states[rid],
-                    float(done)
-                )
+            # 3. 환경에서 한 스텝 실행
+            observations, rewards, done, status = system.step(actions)
+            
+            # 4. 다음 상태 수집
+            next_states = {}
+            for rid in range(num_robots):
+                if rid in system.environment.state.robot_positions:
+                    state = system.get_state_for_robot(rid)
+                    next_states[rid] = state
+            
+            # 5. 각 로봇의 경험을 Replay Buffer에 추가
+            step_reward = 0.0
+            for rid in current_states.keys():
+                if rid in next_states and rid in rewards:
+                    robot_reward = rewards[rid]
+                    step_reward += robot_reward
+                    
+                    # 실패 시 큰 페널티 추가
+                    if done and status == STATUS_FAIL:
+                        robot_reward -= 50.0
+                    # 성공 시 큰 보너스 추가
+                    elif done and status == STATUS_WIN:
+                        robot_reward += 200.0
+                    
+                    self.replay_buffer.add(
+                        current_states[rid],
+                        actions[rid],
+                        robot_reward,
+                        next_states[rid],
+                        float(done)
+                    )
+            
+            episode_reward += step_reward
+            step_count += 1
+            
+            # 에피소드 종료 확인
+            if done:
+                break
         
-        return total_reward, step_count, final_status
+        # 평균 보상 (로봇당)
+        avg_reward = episode_reward / num_robots if num_robots > 0 else 0.0
+        final_status = system.get_status()
+        
+        return avg_reward, step_count, final_status
 
     def _save_model(self):
         """모델 저장"""
         os.makedirs(os.path.dirname(self.model_path) if os.path.dirname(self.model_path) else "models", exist_ok=True)
         self.agent.save(self.model_path)
 
-    def evaluate(self, num_episodes=10):
+    def evaluate(self, num_episodes=10, verbose=False):
         """학습된 에이전트 평가"""
         print("\n" + "=" * 60)
         print(f"평가 시작 ({num_episodes} 에피소드)")
         print("=" * 60)
         
         success_count = 0
+        fail_count = 0
         total_rewards = []
         total_steps = []
         
@@ -289,21 +280,33 @@ class DQNTrainer:
             
             if status == STATUS_WIN:
                 success_count += 1
+                if verbose:
+                    print(f"  Episode {episode+1}: ✅ WIN (reward={reward:.1f}, steps={steps})")
+            elif status == STATUS_FAIL:
+                fail_count += 1
+                if verbose:
+                    print(f"  Episode {episode+1}: ❌ FAIL (reward={reward:.1f}, steps={steps})")
+            else:
+                if verbose:
+                    print(f"  Episode {episode+1}: ⏱️ TIMEOUT (reward={reward:.1f}, steps={steps})")
         
         # Epsilon 복원
         self.agent.epsilon = original_epsilon
         
         avg_reward = sum(total_rewards) / num_episodes
         avg_steps = sum(total_steps) / num_episodes
-        success_rate = success_count / num_episodes * 100
+        win_rate = success_count / num_episodes
         
         print(f"평균 보상: {avg_reward:.2f}")
         print(f"평균 스텝: {avg_steps:.1f}")
-        print(f"성공률: {success_rate:.1f}%")
+        print(f"승률: {win_rate*100:.1f}%")
         print("=" * 60)
         
         return {
-            "success_rate": success_rate,
+            "total_episodes": num_episodes,
+            "wins": success_count,
+            "fails": fail_count,
+            "win_rate": win_rate,
             "avg_reward": avg_reward,
             "avg_steps": avg_steps
         }

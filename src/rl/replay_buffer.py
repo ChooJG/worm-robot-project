@@ -58,6 +58,37 @@ class ReplayBuffer:
     def clear(self):
         """버퍼 초기화"""
         self.buffer.clear()
+    
+    def add_demonstrations(self, demonstrations):
+        """
+        사전 정의된 demonstration(성공 경로)을 버퍼에 추가
+        
+        Sparse Reward 문제 해결:
+        - 학습 초기에 "성공 경험"을 제공
+        - Q-network가 목표 도달 방법을 빠르게 학습
+        
+        Args:
+            demonstrations: [(state, action, reward, next_state, done), ...] 리스트
+        """
+        for experience in demonstrations:
+            self.buffer.append(experience)
+        
+        print(f"✅ {len(demonstrations)}개의 demonstration을 Replay Buffer에 추가했습니다.")
+    
+    def get_demo_ratio(self):
+        """
+        현재 버퍼에서 demonstration이 차지하는 비율
+        (demonstration은 높은 보상을 가진 경험으로 추정)
+        
+        Returns:
+            float: 0.0 ~ 1.0 (demonstration 비율)
+        """
+        if len(self.buffer) == 0:
+            return 0.0
+        
+        # 보상이 50 이상인 경험을 demonstration으로 간주
+        high_reward_count = sum(1 for exp in self.buffer if exp[2] >= 50.0)
+        return high_reward_count / len(self.buffer)
 
 
 class PrioritizedReplayBuffer(ReplayBuffer):

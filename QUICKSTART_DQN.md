@@ -113,8 +113,21 @@ system = run_simulation(rl_agent=agent, verbose=True)
 - Double DQN
 - Dueling DQN
 - Prioritized Experience Replay
-- 멀티 에이전트 협력 학습 (MADDPG 등)
+- ~~멀티 에이전트 협력 학습 (MADDPG 등)~~ → **QMIX 또는 Independent DQN 권장** (이산 행동 공간에 적합)
 - 학습 시각화 (TensorBoard)
+
+### ⚠️ 학습이 안될 때
+
+**문제**: 로봇 4개가 모두 성공해야 하므로 성공 경험이 없어 학습 진행 안됨
+
+**해결책**: **Curriculum Learning 사용** (강력 추천!)
+
+```bash
+cd src
+python3.11 train_curriculum.py
+```
+
+자세한 내용은 [CURRICULUM_LEARNING.md](../CURRICULUM_LEARNING.md) 참고
 
 ## 🐛 트러블슈팅
 

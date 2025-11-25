@@ -49,7 +49,7 @@ class Controller(AtomicDEVS):
     - _select_action() 메서드를 수정하여 RL 에이전트 통합 가능
     """
 
-    def __init__(self, num_robots=4, rl_agent=None):
+    def __init__(self, num_robots=1, rl_agent=None):
         """
         Args:
             num_robots: 로봇 수

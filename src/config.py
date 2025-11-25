@@ -30,6 +30,7 @@ DIR_NAMES = ["동", "남", "서", "북"]
 ACTION_MOVE = "move"              # 전진 (5초)
 ACTION_ROTATE_CW = "rotate_cw"    # 시계방향 회전 (3초)
 ACTION_ROTATE_CCW = "rotate_ccw"  # 반시계방향 회전 (3초)
+ACTION_STAY = "stay"              # 대기 (1초) - 다중 로봇 충돌 회피용
 
 
 # ========================================
@@ -40,6 +41,7 @@ ACTION_TIMES = {
     ACTION_MOVE: 5,
     ACTION_ROTATE_CW: 3,
     ACTION_ROTATE_CCW: 3,
+    ACTION_STAY: 1,
 }
 
 
@@ -64,7 +66,7 @@ GOAL_POSITIONS = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 # 로봇 초기 설정
 # ========================================
 
-NUM_ROBOTS = 4
+NUM_ROBOTS = 1
 
 
 def generate_random_robot_configs(num_robots=NUM_ROBOTS):

@@ -24,6 +24,7 @@ def create_system(rl_agent=None):
         WormRobotSystem 인스턴스
     """
     # 시스템 생성 (내부에서 자동으로 랜덤 초기 위치 생성)
+    # num_robots를 지정하지 않으면 config.NUM_ROBOTS 사용
     system = WormRobotSystem(rl_agent=rl_agent)
     
     return system
@@ -37,7 +38,7 @@ def main():
     
     # 하이퍼파라미터
     STATE_DIM = 13  # controller._observation_to_state에서 정의한 차원
-    ACTION_DIM = 3  # 전진, 시계방향, 반시계방향
+    ACTION_DIM = 4  # 3 → 4 (STAY 추가)  # 전진, 시계방향, 반시계방향
     
     # DQN 에이전트 생성
     agent = DQNAgent(
@@ -56,7 +57,7 @@ def main():
     trainer = DQNTrainer(
         agent=agent,
         create_system_fn=create_system,
-        num_episodes=5000,              # 개선된 보상으로 재학습
+        num_episodes=500000,              # 개선된 보상으로 재학습
         termination_time=100,     # 시뮬레이션 최대 시간 (200 → 100초로 단축)
         batch_size=32,
         buffer_size=10000,

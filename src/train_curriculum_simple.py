@@ -16,7 +16,7 @@ from rl.agent import DQNAgent
 from rl.replay_buffer import PrioritizedReplayBuffer
 from rl.demonstrations_extended import get_extended_demonstrations
 from system import WormRobotSystem
-from moving_obstacle import create_horizontal_obstacle
+from moving_obstacle import create_horizontal_obstacle, create_moving_obstacles
 from config import STATUS_WIN, STATUS_FAIL, STATUS_RUNNING
 import numpy as np
 
@@ -114,13 +114,13 @@ class SimpleCurriculumTrainer:
                 # Phase 1-3: 로봇 1개, 장애물 있음 - 적은 데모
                 demos = get_extended_demonstrations(num_robots=1, num_random=500)
         else:
-            # Phase 3.5, 4: 로봇 2개 - 충분한 데모 (중요!)
+            # Phase 3.5, 4: 로봇 2개 - Happy Path 줄임 (성능 문제)
             if obstacles is None or len(obstacles) == 0:
-                # 장애물 없음: 대량 데모
-                demos = get_extended_demonstrations(num_robots=2, num_random=2000)
+                # 장애물 없음: 소량 데모 (로봇 2개는 생성이 오래 걸림)
+                demos = get_extended_demonstrations(num_robots=2, num_random=100)
             else:
-                # 장애물 있음: 중간 데모
-                demos = get_extended_demonstrations(num_robots=2, num_random=1000)
+                # 장애물 있음: 소량 데모
+                demos = get_extended_demonstrations(num_robots=2, num_random=50)
         
         if demos:
             self.replay_buffer.add_demonstrations(demos)
@@ -298,12 +298,13 @@ class SimpleCurriculumTrainer:
 
 def main():
     print("\n" + "=" * 70)
-    print("🎓 개선된 Curriculum Learning (STAY 학습 포함)")
+    print("🎓 개선된 Curriculum Learning (STAY + 충돌 회피)")
     print("=" * 70)
     print("전략:")
     print("  Phase 0-3:   로봇 1개 (정적 장애물 난이도 증가)")
-    print("  Phase 3.25:  로봇 1개 + 움직이는 장애물 (STAY 학습!) ✨")
-    print("  Phase 3.5:   로봇 2개 (장애물 없음 - 협력 학습)")
+    print("  Phase 3.25-3.35: 로봇 1개 + 움직이는 장애물 (STAY 학습!) ✨")
+    print("  Phase 3.4:   로봇 2개 준비 (충돌 회피 집중!) ⭐")
+    print("  Phase 3.5:   로봇 2개 심화 (협력 학습)")
     print("  Phase 4:     로봇 2개 + 정적 장애물 (종합)")
     print("=" * 70)
     
@@ -408,38 +409,112 @@ def main():
     agent.epsilon = 0.35
     print(f"\n🔄 Phase 3.25를 위해 Epsilon 재설정: {agent.epsilon}")
     
-    # Phase 3.25: 로봇 1개 + 움직이는 장애물 (STAY 학습!)
-    moving_obs = create_horizontal_obstacle(y=0, speed=1)  # 중앙 라인을 왕복
+    # Phase 3.25: 로봇 1개 + 움직이는 장애물 1개 (STAY 학습 시작!)
+    moving_obs_1 = create_moving_obstacles(count=1)
     try:
         phase325_stats, phase325_success = trainer.train_phase(
-            phase_name="Phase 3.25: 움직이는 장애물 (STAY 학습!)",
+            phase_name="Phase 3.25: 움직이는 장애물 1개 (STAY 학습!)",
             obstacles=None,  # 정적 장애물 없음
-            moving_obstacles=[moving_obs],  # 움직이는 장애물 1개
-            num_episodes=25000,  # 충분한 학습
+            moving_obstacles=moving_obs_1,  # 움직이는 장애물 1개
+            num_episodes=30000,  # 25000 → 30000 (충분한 학습)
             termination_time=100,  # 움직이는 장애물 대응 시간 필요
             success_threshold=0.15,  # 15% 이상
-            model_path="outputs/curriculum_simple_phase3.25.pth"
+            model_path="outputs/curriculum_simple_phase3.25.pth",
+            num_robots=1
         )
     except KeyboardInterrupt:
         print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
         return
     
     if phase325_success < 0.08:  # 8% 미만이면
-        print("\n⚠️ Phase 3.25 성공률 낮음. 그래도 Phase 3.5로 진행합니다.")
-        # STAY를 배웠다면 괜찮으므로 계속 진행
+        print("\n⚠️ Phase 3.25 성공률 낮음. 그래도 Phase 3.3으로 진행합니다.")
+    
+    # Epsilon 재조정
+    agent.epsilon = 0.35
+    print(f"\n🔄 Phase 3.3을 위해 Epsilon 재설정: {agent.epsilon}")
+    
+    # Phase 3.3: 로봇 1개 + 움직이는 장애물 2개 (STAY 심화!)
+    moving_obs_2 = create_moving_obstacles(count=2)
+    try:
+        phase33_stats, phase33_success = trainer.train_phase(
+            phase_name="Phase 3.3: 움직이는 장애물 2개 (STAY 심화!)",
+            obstacles=None,  # 정적 장애물 없음
+            moving_obstacles=moving_obs_2,  # 움직이는 장애물 2개 (수평+수직 교차)
+            num_episodes=35000,  # 난이도 증가로 에피소드 증가
+            termination_time=120,  # 더 복잡하므로 시간 증가
+            success_threshold=0.12,  # 12% 이상
+            model_path="outputs/curriculum_simple_phase3.3.pth",
+            num_robots=1
+        )
+    except KeyboardInterrupt:
+        print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
+        return
+    
+    if phase33_success < 0.05:  # 5% 미만이면
+        print("\n⚠️ Phase 3.3 성공률 낮음. 그래도 Phase 3.35로 진행합니다.")
+    
+    # Epsilon 재조정
+    agent.epsilon = 0.35
+    print(f"\n🔄 Phase 3.35를 위해 Epsilon 재설정: {agent.epsilon}")
+    
+    # Phase 3.35: 로봇 1개 + 움직이는 장애물 3개 (STAY 최고 난이도!)
+    moving_obs_3 = create_moving_obstacles(count=3)
+    try:
+        phase335_stats, phase335_success = trainer.train_phase(
+            phase_name="Phase 3.35: 움직이는 장애물 3개 (STAY 최고 난이도!)",
+            obstacles=None,  # 정적 장애물 없음
+            moving_obstacles=moving_obs_3,  # 움직이는 장애물 3개
+            num_episodes=40000,  # 최고 난이도로 에피소드 최대
+            termination_time=150,  # 복잡도 최대로 시간 증가
+            success_threshold=0.10,  # 10% 이상
+            model_path="outputs/curriculum_simple_phase3.35.pth",
+            num_robots=1
+        )
+    except KeyboardInterrupt:
+        print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
+        return
+    
+    if phase335_success < 0.05:  # 5% 미만이면
+        print("\n⚠️ Phase 3.35 성공률 낮음. 그래도 Phase 3.4로 진행합니다.")
+    
+    # Epsilon 재조정 (로봇 2개는 완전히 새로운 상황!)
+    agent.epsilon = 0.8  # 0.5 → 0.8 (대폭 증가!)
+    print(f"\n🔄 Phase 3.4를 위해 Epsilon 재설정: {agent.epsilon}")
+    print(f"   (로봇 2개는 새로운 상황이므로 탐험 강화!)")
+    
+    # Phase 3.4: 로봇 2개 + 넓은 목표 (협력 학습 준비 단계!)
+    # 목표: 로봇끼리 충돌만 피하면 됨 (각자 다른 방향 목표)
+    try:
+        phase34_stats, phase34_success = trainer.train_phase(
+            phase_name="Phase 3.4: 로봇 2개 준비 단계 (서로 피하기!)",
+            obstacles=None,  # 장애물 없음
+            moving_obstacles=None,  # 움직이는 장애물 없음
+            num_episodes=60000,  # 50000 → 60000 (더 충분한 학습!)
+            termination_time=150,  # 120 → 150 (로봇 2개 + 협력 필요)
+            success_threshold=0.08,  # 10% → 8% (현실적으로)
+            model_path="outputs/curriculum_simple_phase3.4.pth",
+            num_robots=2  # ← 로봇 2개! (충돌 회피 집중 학습)
+        )
+    except KeyboardInterrupt:
+        print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
+        return
+    
+    if phase34_success < 0.03:  # 5% → 3% (더 관대하게)
+        print("\n⚠️ Phase 3.4 성공률 낮음. 그래도 Phase 3.5로 진행합니다.")
+        print(f"   (로봇 2개 협력은 매우 어려운 문제입니다)")
     
     # Epsilon 재조정
     agent.epsilon = 0.4
     print(f"\n🔄 Phase 3.5를 위해 Epsilon 재설정: {agent.epsilon}")
     
-    # Phase 3.5: 로봇 2개, 장애물 없음 (다중 로봇 협력 기초)
+    # Phase 3.5: 로봇 2개, 장애물 없음 (다중 로봇 협력 심화)
     try:
         phase35_stats, phase35_success = trainer.train_phase(
-            phase_name="Phase 3.5: 로봇 2개 (장애물 없음)",
+            phase_name="Phase 3.5: 로봇 2개 심화 (장애물 없음)",
             obstacles=None,  # 장애물 없음 (협력 학습에 집중)
-            num_episodes=30000,
-            termination_time=100,  # 로봇 2개라 시간 더 필요
-            success_threshold=0.15,  # 15% 이상
+            num_episodes=40000,  # 30000 → 40000 (충분한 학습)
+            termination_time=120,  # 100 → 120 (로봇 2개라 시간 더 필요)
+            success_threshold=0.12,  # 15% → 12% (현실적으로)
             model_path="outputs/curriculum_simple_phase3.5.pth",
             num_robots=2  # ← 로봇 2개!
         )
@@ -474,22 +549,31 @@ def main():
     print("\n" + "=" * 70)
     print("🎉 Curriculum Learning 완료!")
     print("=" * 70)
-    print(f"Phase 0   (1개, 장애물 없음):   {phase0_success*100:5.1f}%")
-    print(f"Phase 1   (1개, 모서리 1개):    {phase1_success*100:5.1f}%")
-    print(f"Phase 2   (1개, 중앙 1개):      {phase2_success*100:5.1f}%")
-    print(f"Phase 3   (1개, 장애물 3개):    {phase3_success*100:5.1f}%")
-    print(f"Phase 3.5 (2개, 장애물 없음):   {phase35_success*100:5.1f}%")
-    print(f"Phase 4   (2개, 모서리 1개):    {phase4_success*100:5.1f}%")
+    print(f"Phase 0    (1개, 장애물 없음):         {phase0_success*100:5.1f}%")
+    print(f"Phase 1    (1개, 정적 1개):           {phase1_success*100:5.1f}%")
+    print(f"Phase 2    (1개, 정적 1개):           {phase2_success*100:5.1f}%")
+    print(f"Phase 3    (1개, 정적 3개):           {phase3_success*100:5.1f}%")
+    print(f"Phase 3.25 (1개, 움직임 1개):         {phase325_success*100:5.1f}%")
+    print(f"Phase 3.3  (1개, 움직임 2개):         {phase33_success*100:5.1f}%")
+    print(f"Phase 3.35 (1개, 움직임 3개):         {phase335_success*100:5.1f}%")
+    print(f"Phase 3.4  (2개, 준비 단계):          {phase34_success*100:5.1f}%")
+    print(f"Phase 3.5  (2개, 장애물 없음):        {phase35_success*100:5.1f}%")
+    print(f"Phase 4    (2개, 정적 1개):           {phase4_success*100:5.1f}%")
     print("=" * 70)
     print("\n저장된 모델:")
     print("  outputs/curriculum_simple_phase0.pth")
     print("  outputs/curriculum_simple_phase1.pth")
     print("  outputs/curriculum_simple_phase2.pth")
     print("  outputs/curriculum_simple_phase3.pth")
-    print("  outputs/curriculum_simple_phase3.5.pth  ← 로봇 2개 (장애물 없음)")
-    print("  outputs/curriculum_simple_phase4.pth    ← 로봇 2개 + 장애물!")
+    print("  outputs/curriculum_simple_phase3.25.pth  ← STAY 학습 1")
+    print("  outputs/curriculum_simple_phase3.3.pth   ← STAY 학습 2")
+    print("  outputs/curriculum_simple_phase3.35.pth  ← STAY 학습 3")
+    print("  outputs/curriculum_simple_phase3.4.pth   ← 로봇 2개 준비 ⭐")
+    print("  outputs/curriculum_simple_phase3.5.pth   ← 로봇 2개 심화")
+    print("  outputs/curriculum_simple_phase4.pth     ← 로봇 2개 + 장애물!")
     print("\n평가 명령어:")
-    print("  python3.11 evaluate.py --model outputs/curriculum_simple_phase3.5.pth --num-robots 2")
+    print("  python3.11 evaluate.py --model outputs/curriculum_simple_phase3.25.pth --num-robots 1")
+    print("  python3.11 evaluate.py --model outputs/curriculum_simple_phase3.4.pth --num-robots 2")
     print("  python3.11 evaluate.py --model outputs/curriculum_simple_phase4.pth --num-robots 2 --obstacles '(2,2)'")
     print("=" * 70)
 

@@ -69,13 +69,15 @@ GOAL_POSITIONS = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 NUM_ROBOTS = 1
 
 
-def generate_random_robot_configs(num_robots=NUM_ROBOTS):
+def generate_random_robot_configs(num_robots=NUM_ROBOTS, obstacles=None, moving_obstacles=None):
     """
     격자 내에서 랜덤한 위치에 로봇들을 배치하고, 각 로봇에게 서로 다른 목적지를 할당합니다.
-    로봇끼리 겹치지 않도록 보장합니다.
+    로봇끼리 겹치지 않고, 장애물과도 겹치지 않도록 보장합니다.
     
     Args:
         num_robots: 로봇 수 (최대 4개)
+        obstacles: 정적 장애물 위치 리스트 [(x, y), ...] (선택)
+        moving_obstacles: 움직이는 장애물 리스트 [MovingObstacle, ...] (선택)
     
     Returns:
         list: 로봇 설정 리스트 [{"id": int, "head": tuple, "tail": tuple, "dir": int, "goal": tuple}, ...]
@@ -95,6 +97,14 @@ def generate_random_robot_configs(num_robots=NUM_ROBOTS):
     available_goals = GOAL_POSITIONS.copy()
     random.shuffle(available_goals)
     assigned_goals = available_goals[:num_robots]
+    
+    # 장애물 위치 수집
+    obstacle_positions = set()
+    if obstacles:
+        obstacle_positions.update(obstacles)
+    if moving_obstacles:
+        for obs in moving_obstacles:
+            obstacle_positions.add(obs.get_position())
     
     occupied_cells = set()
     robot_configs = []
@@ -123,6 +133,10 @@ def generate_random_robot_configs(num_robots=NUM_ROBOTS):
             if not (GRID_MIN <= tail_x <= GRID_MAX and GRID_MIN <= tail_y <= GRID_MAX):
                 continue
             
+            # head와 tail이 장애물과 겹치지 않는지 확인
+            if head in obstacle_positions or tail in obstacle_positions:
+                continue
+            
             # head와 tail 모두 비어있는지 확인
             if head not in occupied_cells and tail not in occupied_cells:
                 occupied_cells.add(head)
@@ -142,7 +156,7 @@ def generate_random_robot_configs(num_robots=NUM_ROBOTS):
         if not placed:
             raise RuntimeError(
                 f"로봇 {robot_id}를 배치할 수 없습니다. "
-                f"격자 크기({GRID_SIZE}x{GRID_SIZE})에 비해 로봇 수({num_robots})가 너무 많을 수 있습니다."
+                f"격자 크기({GRID_SIZE}x{GRID_SIZE})에 비해 로봇 수({num_robots})가 너무 많거나 장애물이 너무 많을 수 있습니다."
             )
     
     return robot_configs

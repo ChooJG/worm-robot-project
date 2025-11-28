@@ -333,6 +333,10 @@ class Environment(AtomicDEVS):
                 if steps_used < max_steps:
                     efficiency_bonus = (max_steps - steps_used) * 5.0
                     reward += efficiency_bonus
+                
+                # 다중 로봇: 이미 도달한 경우 유지 보너스 (STAY 학습!)
+                if len(self.state.robot_positions) >= 2:
+                    reward += 50.0  # 매 스텝 유지 보너스
             
             # 5. 거리별 추가 보너스 (매우 가까울 때 더 큰 보상)
             if total_dist <= 2:
@@ -349,6 +353,43 @@ class Environment(AtomicDEVS):
             # 7. 장애물 근처 경고
             if self._is_near_obstacle(head) or self._is_near_obstacle(tail):
                 reward -= 3.0  # 1.0 → 3.0
+            
+            # 8. 다중 로봇: 다른 로봇과의 거리 유지 보상 (충돌 회피!) ⭐
+            if len(self.state.robot_positions) >= 2:
+                min_distance_to_other = 999
+                for other_rid, other_pos in self.state.robot_positions.items():
+                    if other_rid == rid:
+                        continue
+                    
+                    # 나의 head/tail과 다른 로봇의 head/tail 간 거리
+                    dist_hh = abs(head[0] - other_pos["head"][0]) + abs(head[1] - other_pos["head"][1])
+                    dist_ht = abs(head[0] - other_pos["tail"][0]) + abs(head[1] - other_pos["tail"][1])
+                    dist_th = abs(tail[0] - other_pos["head"][0]) + abs(tail[1] - other_pos["head"][1])
+                    
+                    # tail-tail 거리: (0,0)에서는 예외 (충돌 면역)
+                    dist_tt = 999  # 기본값: 충분히 멀리
+                    if tail != (0, 0) and other_pos["tail"] != (0, 0):
+                        dist_tt = abs(tail[0] - other_pos["tail"][0]) + abs(tail[1] - other_pos["tail"][1])
+                    
+                    min_dist = min(dist_hh, dist_ht, dist_th, dist_tt)
+                    min_distance_to_other = min(min_distance_to_other, min_dist)
+                
+                # 거리별 보상/페널티
+                if min_distance_to_other == 0:
+                    # 충돌! (이미 fail 처리되겠지만)
+                    reward -= 500.0
+                elif min_distance_to_other == 1:
+                    # 바로 옆: 위험! 큰 페널티
+                    reward -= 30.0
+                elif min_distance_to_other == 2:
+                    # 가까움: 경고 페널티
+                    reward -= 10.0
+                elif min_distance_to_other == 3:
+                    # 적당한 거리: 약간의 보너스 (안전)
+                    reward += 5.0
+                elif min_distance_to_other >= 4:
+                    # 충분히 멀리: 보너스 (안전)
+                    reward += 2.0
             
             self.state.rewards[rid] = reward
     

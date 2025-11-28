@@ -39,8 +39,12 @@ class WormRobotSystem(CoupledDEVS):
         if num_robots is None:
             num_robots = config.NUM_ROBOTS
         
-        # 매 시뮬레이션마다 새로운 랜덤 위치 생성
-        robot_configs = config.generate_random_robot_configs(num_robots=num_robots)
+        # 매 시뮬레이션마다 새로운 랜덤 위치 생성 (장애물 위치 고려)
+        robot_configs = config.generate_random_robot_configs(
+            num_robots=num_robots,
+            obstacles=obstacles,
+            moving_obstacles=moving_obstacles
+        )
 
         # 로봇 생성
         self.robots = []

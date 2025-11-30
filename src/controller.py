@@ -12,6 +12,7 @@ from config import (
     ACTION_MOVE,
     ACTION_ROTATE_CW,
     ACTION_ROTATE_CCW,
+    ACTION_STAY,
 )
 
 
@@ -113,55 +114,50 @@ class Controller(AtomicDEVS):
 
     def _select_action(self, rid, obs):
         """
-        행동 선택 정책 - 강화학습 연동 지점
-
-        현재는 간단한 휴리스틱 사용:
-        - 목표와 거리가 멀면 주로 전진
-        - 목표와 가까우면 신중하게 회전도 고려
-
-        Args:
-            rid: 로봇 ID
-            obs: 관찰 데이터 딕셔너리
-
-        Returns:
-            dict: {"type": action_type}
-
-        강화학습 연동 예시:
-        ----------------------
-        if self.rl_agent is not None:
-            # RL 에이전트를 사용하여 행동 선택
-            state = self._observation_to_state(obs)
-            action = self.rl_agent.get_action(state)
-            return {"type": action}
-        else:
-            # 휴리스틱 사용 (아래 기본 정책)
-            ...
+        rid: 로봇 ID
+        obs: 해당 로봇의 관측 딕셔너리
         """
         if self.rl_agent is not None:
-            # RL 에이전트 연동
+            # ============ 1) 주변 로봇 거리 기반 위험 감지 ============
+            own_head = obs["own_head"]              # 내 앞발 좌표 (x, y)
+            detected = obs["detected_robots"]       # 센서에 잡힌 다른 로봇들 리스트
+
+            danger = False
+            for robot in detected:
+                # head / tail 둘 다 검사
+                for key in ("head", "tail"):
+                    other = robot[key]              # (x, y)
+                    dx = abs(other[0] - own_head[0])
+                    dy = abs(other[1] - own_head[1])
+                    # 상/하/좌/우/대각선 1칸 이내 → max(|dx|, |dy|) <= 1
+                    if max(dx, dy) <= 1:
+                        danger = True
+                        break
+                if danger:
+                    break
+
+            # 🔒 안전 룰: 주변 1칸 안에 다른 로봇 있으면 무조건 STAY
+            if danger:
+                return {"type": ACTION_STAY}
+
+            # ============ 2) 안전할 때만 RL에게 맡김 ============
             state = self._observation_to_state(obs)
             action_idx = self.rl_agent.get_action(state, training=True)
-            
-            # 행동 인덱스를 행동 타입으로 변환
-            action_types = [ACTION_MOVE, ACTION_ROTATE_CW, ACTION_ROTATE_CCW]
+
+            # MAPPO 쪽이 action_dim=4 이므로 4개 모두 매핑
+            action_types = [
+                ACTION_MOVE,
+                ACTION_ROTATE_CW,
+                ACTION_ROTATE_CCW,
+                ACTION_STAY,   # 4번째 액션은 자발적 STAY
+            ]
+
+            # 방어 코드: 범위를 벗어나면 STAY
+            if not (0 <= action_idx < len(action_types)):
+                return {"type": ACTION_STAY}
+
             return {"type": action_types[action_idx]}
 
-        # 기본 휴리스틱 정책
-        goal_pos = obs["goal_position"]
-        tail_pos = obs["own_tail"]
-        
-        # 목적지까지의 맨해튼 거리 계산
-        distance = abs(goal_pos[0] - tail_pos[0]) + abs(goal_pos[1] - tail_pos[1])
-
-        # 간단한 휴리스틱: 거리가 멀면 전진, 가까우면 다양한 행동
-        if distance > 2:
-            if random.random() < 0.7:
-                return {"type": ACTION_MOVE}
-            else:
-                return {"type": random.choice([ACTION_ROTATE_CW, ACTION_ROTATE_CCW])}
-        else:
-            # 목표 근처에서는 더 신중하게
-            return {"type": random.choice([ACTION_MOVE, ACTION_ROTATE_CW, ACTION_ROTATE_CCW])}
 
     def _observation_to_state(self, obs):
         """

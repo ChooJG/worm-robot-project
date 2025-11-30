@@ -12,6 +12,7 @@ from config import (
     ACTION_MOVE,
     ACTION_ROTATE_CW,
     ACTION_ROTATE_CCW,
+    ACTION_STAY,
     ACTION_TIMES,
 )
 from utils import add_pos
@@ -116,6 +117,10 @@ class Robot(AtomicDEVS):
                 self.state.direction = (self.state.direction - 1) % 4
                 direction_vec = DIRECTIONS[self.state.direction]
                 self.state.head_pos = add_pos(self.state.tail_pos, direction_vec)
+
+            elif action["type"] == ACTION_STAY:
+                # 위치/방향은 그대로, 그냥 시간만 소비
+                pass
 
             # EXECUTING 상태로 전환
             self.state.phase = "EXECUTING"

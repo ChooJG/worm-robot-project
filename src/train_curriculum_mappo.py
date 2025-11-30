@@ -216,12 +216,13 @@ class MAPPOCurriculumTrainer:
         for rid in range(num_robots):
             # 각 로봇의 앞발에서 가장 가까운 목표 지점까지의 초기 거리 계산
             head_pos = system.environment.state.robot_positions[rid]["head"]
+
             min_dist = min([abs(head_pos[0] - tx) + abs(head_pos[1] - ty) for tx, ty in target_positions])
             prev_distances[rid] = min_dist
 
         episode_reward = 0.0
         step_count = 0
-        
+
         while not system.is_done() and step_count < termination_time:
             # 현재 상태
             current_states = {}
@@ -229,18 +230,18 @@ class MAPPOCurriculumTrainer:
                 if rid in system.environment.state.robot_positions:
                     state = system.get_state_for_robot(rid)
                     current_states[rid] = state
-            
+
             # 행동 선택 (MAPPO)
             actions = {}
             log_probs = {}
             values = {}
-            
+
             for rid in current_states.keys():
                 action, log_prob, value = self.agent.get_action(current_states[rid], training=True)
                 actions[rid] = action
                 log_probs[rid] = log_prob
                 values[rid] = value
-            
+
             # 스텝 실행
             observations, _, done, status = system.step(actions) # 기존 rewards 변수는 사용 안함
             # 🔹 현재 각 로봇의 head 위치와, 타겟 셀 점령 개수 계산
@@ -262,27 +263,38 @@ class MAPPOCurriculumTrainer:
             step_total_reward = 0.0
             for rid in current_states.keys():
                 robot_reward = 0.0
-                
+
                 # 1. 스텝마다 작은 페널티 (최소 스텝 유도)
                 robot_reward -= 1.0
 
                 # 2. 목표에 가까워지는 것에 대한 보상
                 head_pos = system.environment.state.robot_positions[rid]["head"]
+                if head_pos in target_positions:
+                    robot_reward += 3.0
+
                 min_dist_to_target = min([abs(head_pos[0] - tx) + abs(head_pos[1] - ty) for tx, ty in target_positions])
-                
+
                 distance_diff = prev_distances[rid] - min_dist_to_target
                 if distance_diff > 0:
                     robot_reward += 10.0  # 목표에 가까워졌을 때 큰 보상
                 elif distance_diff < 0:
                     robot_reward -= 5.0   # 목표에서 멀어졌을 때 페널티
-                
+
                 prev_distances[rid] = min_dist_to_target
 
                 # 2-1. 타겟 칸 점령 개수에 따른 추가 보상 (특히 4로봇에서 효과적)
                 #   - 타겟 칸 1개 채워져 있으면 +2
                 #   - 4개 다 채워져 있으면 +8
                 #   → step penalty(-1)를 어느 정도 상쇄해 주면서도 너무 크지 않게
-                robot_reward += num_occupied * 2.0
+
+                # 타겟 칸 점령 개수 보상
+                num_robots = len(current_states)
+                if num_robots == 4:
+                    # 4로봇일 때는 타겟 점령 영향 더 크게
+                    robot_reward += num_occupied * 4.0  # 0~16
+                else:
+                    robot_reward += num_occupied * 2.0  # 기존 값 유지
+
 
                 # 3. 최종 성공/실패에 대한 큰 보상/페널티
                 if done:
@@ -301,16 +313,16 @@ class MAPPOCurriculumTrainer:
                     float(done)
                 )
                 step_total_reward += robot_reward
-            
+
             episode_reward += step_total_reward
             step_count += 1
-            
+
             if done:
                 break
-        
+
         avg_reward = episode_reward / num_robots if num_robots > 0 else 0.0
         final_status = system.get_status()
-        
+
         return avg_reward, step_count, final_status
 
 
@@ -327,7 +339,7 @@ def main():
     print("  Phase 5: 로봇 4개 + 움직이는 장애물 1개")
     print("  Phase 6: 로봇 4개 + 움직이는 장애물 2개")
     print("=" * 70)
-    
+
     # MAPPO 에이전트 생성 (한 번만!)
     agent = MAPPOAgent(
         state_dim=13,
@@ -342,7 +354,7 @@ def main():
         max_grad_norm=0.5,
         device="cpu"
     )
-    #agent.load("outputs/mappo_phase1_3robots.pth")
+    agent.load("outputs/mappo_phase1_3robots.pth")
     print("🔥 Phase 0 모델 로드 완료! 이제 Phase 1부터 시작합니다.")
 
     # 트레이너 생성
@@ -351,7 +363,7 @@ def main():
         log_interval=50,
         rollout_steps=2048
     )
-
+    '''
     # Phase 0: 로봇 2개, 장애물 없음 (협력 학습 기초)
     try:
         phase0_stats, phase0_success = trainer.train_phase(
@@ -366,12 +378,12 @@ def main():
     except KeyboardInterrupt:
         print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
         return
-    
+
     if phase0_success < 0.15:
         print("\n❌ Phase 0 실패! 협력 학습이 제대로 되지 않았습니다.")
         print("   하이퍼파라미터를 재조정하거나 에피소드 수를 늘려야 합니다.")
         return
-    
+    '''
     # Phase 1: 로봇 3개, 장애물 없음 (협력 심화)
     try:
         phase1_stats, phase1_success = trainer.train_phase(
@@ -386,7 +398,7 @@ def main():
     except KeyboardInterrupt:
         print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
         return
-    
+
     if phase1_success < 0.1:
         print("\n⚠️ Phase 1 성공률 낮음. 그래도 Phase 2로 진행합니다.")
 
@@ -404,10 +416,10 @@ def main():
     except KeyboardInterrupt:
         print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
         return
-    
+
     if phase2_success < 0.08:
         print("\n⚠️ Phase 2 성공률 낮음. 그래도 Phase 3으로 진행합니다.")
-    
+
     # Phase 3: 로봇 4개 + 정적 장애물 1개
     try:
         phase3_stats, phase3_success = trainer.train_phase(
@@ -422,7 +434,7 @@ def main():
     except KeyboardInterrupt:
         print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
         return
-    
+
     # Phase 4: 로봇 4개 + 정적 장애물 3개
     try:
         phase4_stats, phase4_success = trainer.train_phase(
@@ -437,7 +449,7 @@ def main():
     except KeyboardInterrupt:
         print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
         return
-    
+
     # Phase 5: 로봇 4개 + 움직이는 장애물 1개
     moving_obs_1 = create_moving_obstacles(count=1)
     try:
@@ -454,7 +466,7 @@ def main():
     except KeyboardInterrupt:
         print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
         return
-    
+
     # Phase 6: 로봇 4개 + 움직이는 장애물 2개
     moving_obs_2 = create_moving_obstacles(count=2)
     try:
@@ -471,12 +483,12 @@ def main():
     except KeyboardInterrupt:
         print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
         return
-    
+
     # 최종 요약
     print("\n" + "=" * 70)
     print("🎉 MAPPO Curriculum Learning 완료!")
     print("=" * 70)
-    print(f"Phase 0 (2개, 장애물 없음):           {phase0_success*100:5.1f}%")
+    #print(f"Phase 0 (2개, 장애물 없음):           {phase0_success*100:5.1f}%")
     print(f"Phase 1 (3개, 장애물 없음):           {phase1_success*100:5.1f}%")
     print(f"Phase 2 (4개, 장애물 없음):           {phase2_success*100:5.1f}%")
     print(f"Phase 3 (4개, 정적 1개):              {phase3_success*100:5.1f}%")

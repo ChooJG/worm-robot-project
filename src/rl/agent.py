@@ -127,10 +127,10 @@ class DQNAgent:
             return 0.0
         
         # 배치 데이터 변환
-        states = torch.FloatTensor([t[0] for t in batch]).to(self.device)
+        states = torch.FloatTensor(np.array([t[0] for t in batch])).to(self.device)
         actions = torch.LongTensor([t[1] for t in batch]).to(self.device)
         rewards = torch.FloatTensor([t[2] for t in batch]).to(self.device)
-        next_states = torch.FloatTensor([t[3] for t in batch]).to(self.device)
+        next_states = torch.FloatTensor(np.array([t[3] for t in batch])).to(self.device)
         dones = torch.FloatTensor([t[4] for t in batch]).to(self.device)
         
         # 현재 Q값 예측

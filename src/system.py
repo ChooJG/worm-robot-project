@@ -187,11 +187,14 @@ class WormRobotSystem(CoupledDEVS):
         
         # 결과 수집
         observations = self.environment._generate_observations()
-        rewards = self.environment.get_rewards()
         status = self.environment.state.status
         done = (status != config.STATUS_RUNNING)
-        
-        return observations, rewards, done, status
+
+        dummy_rewards = {
+            rid: 0.0 for rid in self.environment.state.robot_positions.keys()
+        }
+
+        return observations, dummy_rewards, done, status
     
     def _get_valid_actions(self, robot_id, head, tail, direction):
         """

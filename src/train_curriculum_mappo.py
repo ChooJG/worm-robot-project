@@ -204,7 +204,21 @@ class MAPPOCurriculumTrainer:
         """에피소드 실행 (MAPPO용)"""
         system = create_system_fn()
         num_robots = len(system.robots)
-        
+
+        # 목표 위치 설정 (승리 조건과 동일하게)
+        if num_robots <= 2:
+            target_positions = {(0, 1), (0, -1)}
+        else:
+            target_positions = {(0, 1), (1, 0), (0, -1), (-1, 0)}
+
+        # 각 로봇의 이전 거리 저장을 위한 딕셔너리
+        prev_distances = {}
+        for rid in range(num_robots):
+            # 각 로봇의 앞발에서 가장 가까운 목표 지점까지의 초기 거리 계산
+            head_pos = system.environment.state.robot_positions[rid]["head"]
+            min_dist = min([abs(head_pos[0] - tx) + abs(head_pos[1] - ty) for tx, ty in target_positions])
+            prev_distances[rid] = min_dist
+
         episode_reward = 0.0
         step_count = 0
         
@@ -228,33 +242,67 @@ class MAPPOCurriculumTrainer:
                 values[rid] = value
             
             # 스텝 실행
-            observations, rewards, done, status = system.step(actions)
-            
-            # 경험 저장
-            step_reward = 0.0
+            observations, _, done, status = system.step(actions) # 기존 rewards 변수는 사용 안함
+            # 🔹 현재 각 로봇의 head 위치와, 타겟 셀 점령 개수 계산
+            heads = {
+                rid: system.environment.state.robot_positions[rid]["head"]
+                for rid in current_states.keys()
+            }
+
+            # target_positions는 함수 맨 위에서 승리조건과 동일하게 정의한 그 집합
+            #   num_robots <= 2 → {(0,1), (0,-1)}
+            #   num_robots  > 2 → {(0,1), (1,0), (0,-1), (-1,0)}
+            occupied_targets = set()
+            for h in heads.values():
+                if h in target_positions:
+                    occupied_targets.add(h)
+            num_occupied = len(occupied_targets)  # 현재 타겟 칸 몇 개가 채워졌는지 (0~4)
+
+            # 보상 재설계 (Reward Shaping)
+            step_total_reward = 0.0
             for rid in current_states.keys():
-                if rid in rewards:
-                    robot_reward = rewards[rid]
-                    
-                    # 실패 시 큰 페널티
-                    if done and status == STATUS_FAIL:
-                        robot_reward -= 300.0
-                    elif done and status == STATUS_WIN:
-                        robot_reward += 300.0
-                    
-                    step_reward += robot_reward
-                    
-                    # MAPPO 버퍼에 저장
-                    self.agent.store_transition(
-                        current_states[rid],
-                        actions[rid],
-                        robot_reward,
-                        values[rid],
-                        log_probs[rid],
-                        float(done)
-                    )
+                robot_reward = 0.0
+                
+                # 1. 스텝마다 작은 페널티 (최소 스텝 유도)
+                robot_reward -= 1.0
+
+                # 2. 목표에 가까워지는 것에 대한 보상
+                head_pos = system.environment.state.robot_positions[rid]["head"]
+                min_dist_to_target = min([abs(head_pos[0] - tx) + abs(head_pos[1] - ty) for tx, ty in target_positions])
+                
+                distance_diff = prev_distances[rid] - min_dist_to_target
+                if distance_diff > 0:
+                    robot_reward += 10.0  # 목표에 가까워졌을 때 큰 보상
+                elif distance_diff < 0:
+                    robot_reward -= 5.0   # 목표에서 멀어졌을 때 페널티
+                
+                prev_distances[rid] = min_dist_to_target
+
+                # 2-1. 타겟 칸 점령 개수에 따른 추가 보상 (특히 4로봇에서 효과적)
+                #   - 타겟 칸 1개 채워져 있으면 +2
+                #   - 4개 다 채워져 있으면 +8
+                #   → step penalty(-1)를 어느 정도 상쇄해 주면서도 너무 크지 않게
+                robot_reward += num_occupied * 2.0
+
+                # 3. 최종 성공/실패에 대한 큰 보상/페널티
+                if done:
+                    if status == STATUS_WIN:
+                        robot_reward += 500.0
+                    elif status == STATUS_FAIL:
+                        robot_reward -= 500.0
+
+                # 경험 저장
+                self.agent.store_transition(
+                    current_states[rid],
+                    actions[rid],
+                    robot_reward,
+                    values[rid],
+                    log_probs[rid],
+                    float(done)
+                )
+                step_total_reward += robot_reward
             
-            episode_reward += step_reward
+            episode_reward += step_total_reward
             step_count += 1
             
             if done:
@@ -294,14 +342,16 @@ def main():
         max_grad_norm=0.5,
         device="cpu"
     )
-    
+    #agent.load("outputs/mappo_phase1_3robots.pth")
+    print("🔥 Phase 0 모델 로드 완료! 이제 Phase 1부터 시작합니다.")
+
     # 트레이너 생성
     trainer = MAPPOCurriculumTrainer(
         agent=agent,
         log_interval=50,
         rollout_steps=2048
     )
-    
+
     # Phase 0: 로봇 2개, 장애물 없음 (협력 학습 기초)
     try:
         phase0_stats, phase0_success = trainer.train_phase(
@@ -339,7 +389,7 @@ def main():
     
     if phase1_success < 0.1:
         print("\n⚠️ Phase 1 성공률 낮음. 그래도 Phase 2로 진행합니다.")
-    
+
     # Phase 2: 로봇 4개, 장애물 없음 (최종 협력)
     try:
         phase2_stats, phase2_success = trainer.train_phase(
@@ -450,4 +500,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

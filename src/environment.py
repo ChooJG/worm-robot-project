@@ -23,8 +23,8 @@ class EnvironmentState:
         self.step_count = 0
         self.phase = "INIT"        # 상태: INIT, IDLE, PROCESSING
         self.pending_updates = []  # 대기 중인 로봇 업데이트
-        self.rewards = {}          # {robot_id: reward} - 각 로봇의 보상
-        self.prev_distances = {}   # {robot_id: distance} - 이전 스텝의 목표까지 거리
+        #self.rewards = {}          # {robot_id: reward} - 각 로봇의 보상
+        #self.prev_distances = {}   # {robot_id: distance} - 이전 스텝의 목표까지 거리
 
     def __str__(self):
         return (
@@ -150,7 +150,7 @@ class Environment(AtomicDEVS):
         self.state.step_count += 1
 
         # 보상 계산 (승패 판정 전에 수행)
-        self._calculate_rewards()
+        # self._calculate_rewards()
 
         # 승패 판정
         if self._check_fail():
@@ -207,33 +207,57 @@ class Environment(AtomicDEVS):
                 return True
             occupied[head] = rid
 
-            # 뒷발 충돌 체크 (단, (0,0)은 예외)
-            if tail != (0, 0):
-                if tail in occupied:
-                    print(f"[실패] {tail} 위치에서 Robot {rid}와 Robot {occupied[tail]}가 충돌!")
-                    return True
-                occupied[tail] = rid
+            # 뒷발 충돌 체크 (이제 (0,0) 예외 없음)
+            if tail in occupied:
+                print(f"[실패] {tail} 위치에서 Robot {rid}와 Robot {occupied[tail]}가 충돌!")
+                return True
+            occupied[tail] = rid
 
         return False
 
     def _check_win(self):
-        """승리 조건 확인: 모든 로봇이 자신의 목적지에 도달"""
-        if len(self.state.robot_positions) < self.num_robots:
+        """
+        승리 조건 확인:
+        - num_robots = 1: (0, 1) 한 칸만 차지 (원하면 사용)
+        - num_robots = 2: (0, 1), (0, -1) 두 칸 모두 차지
+        - num_robots = 3: 십자 모양 4칸 중 아무 3칸 차지
+        - num_robots = 4: 십자 모양 4칸 모두 차지
+        """
+        num_robots = len(self.state.robot_positions)
+        if num_robots == 0:
             return False
 
-        # 각 로봇이 자신의 목적지에 도달했는지 확인
-        for rid, pos_data in self.state.robot_positions.items():
-            # 뒷발이 중앙 (0,0)에 있는지 확인
-            if pos_data["tail"] != (0, 0):
-                return False
-            
-            # 앞발이 목적지에 있는지 확인
-            goal_position = self.robot_goals.get(rid)
-            if goal_position is None or pos_data["head"] != goal_position:
-                return False
+        heads = {
+            pos_data["head"]
+            for pos_data in self.state.robot_positions.values()
+        }
 
-        print(f"[승리] 모든 로봇이 자신의 목적지에 성공적으로 도착했습니다!")
-        return True
+        # 십자 전체 타겟
+        full_targets = {(0, 1), (1, 0), (0, -1), (-1, 0)}
+
+        if num_robots == 1:
+            # 옵션: 1대만 있을 때는 (0,1)에 서 있으면 승리로 볼 수도 있음
+            target_positions = {(0, 1)}
+            if heads == target_positions:
+                print("[승리] 1개 로봇이 중앙 위 칸에 배치되었습니다!")
+                return True
+            return False
+
+        elif num_robots == 2:
+            # 1차 목표: 위/아래 두 칸 정확히 차지
+            target_positions = {(0, 1), (0, -1)}
+            if heads == target_positions:
+                print("[승리] 2개 로봇의 앞발이 위/아래 칸에 배치되었습니다!")
+                return True
+            return False
+
+        else:
+            # 3대 이상: 십자 4칸 중에서 로봇 수만큼 distinct 칸을 차지하면 OK
+            # (3대면 아무 3칸, 4대면 4칸 모두)
+            if heads.issubset(full_targets) and len(heads) == num_robots:
+                print(f"[승리] {num_robots}개 로봇의 앞발이 중앙 십자 영역에 배치되었습니다!")
+                return True
+            return False
 
     def _generate_observations(self):
         """각 로봇의 센서 관찰 데이터 생성"""
@@ -269,143 +293,3 @@ class Environment(AtomicDEVS):
             }
 
         return observations
-    
-    def _calculate_rewards(self):
-        """각 로봇의 보상 계산 (극대화 버전 - 명확한 신호)"""
-        for rid, pos_data in self.state.robot_positions.items():
-            reward = 0.0
-            
-            # 현재 위치
-            tail = pos_data["tail"]
-            head = pos_data["head"]
-            goal_head = self.robot_goals.get(rid, (0, 0))
-            
-            # 목표까지 거리 (Manhattan distance)
-            tail_dist = abs(tail[0]) + abs(tail[1])
-            head_dist = abs(head[0] - goal_head[0]) + abs(head[1] - goal_head[1])
-            total_dist = tail_dist + head_dist
-            
-            # 1. 기본 스텝 페널티 (10배 강화!)
-            reward -= 0.5  # 0.05 → 0.5 (최소 스텝 유도)
-            
-            # STAY 행동 페널티 (로봇 1개일 때만 - 정적 장애물에서는 무의미)
-            # 다중 로봇에서는 STAY가 충돌 회피 전략이 될 수 있으므로 페널티 X
-            # 주의: 이 로직은 system.step()에서 처리하는게 더 적절
-            # 여기서는 일단 주석 처리
-            
-            # 2. 거리 기반 보상 (더 강하게!)
-            # 거리가 가까울수록 기하급수적으로 증가
-            distance_reward = (12 - total_dist) / 12 * 20.0  # 5.0 → 20.0
-            reward += distance_reward
-            
-            # 3. 거리 감소 보너스 (극대화!)
-            if rid in self.state.prev_distances:
-                prev_dist = self.state.prev_distances[rid]
-                distance_change = prev_dist - total_dist
-                
-                if distance_change > 0:
-                    # 가까워지면 엄청난 보너스! (20배 증폭)
-                    reward += distance_change * 20.0  # 10.0 → 20.0
-                elif distance_change < 0:
-                    # 멀어지면 강한 페널티 (10배 증폭)
-                    reward += distance_change * 10.0  # 5.0 → 10.0
-            
-            # 현재 거리 저장 (다음 스텝 비교용)
-            self.state.prev_distances[rid] = total_dist
-            
-            # 4. 중간 목표 달성 시 엄청난 보너스!
-            tail_at_center = (tail == (0, 0))
-            head_at_goal = (head == goal_head)
-            
-            if tail_at_center and not head_at_goal:
-                # 뒷발만 중앙 도달 - 큰 보너스!
-                reward += 100.0
-            elif head_at_goal and not tail_at_center:
-                # 앞발만 목표 도달 - 큰 보너스!
-                reward += 100.0
-            elif tail_at_center and head_at_goal:
-                # 완전 성공! - 초대형 보너스!!!
-                reward += 500.0
-                
-                # 효율성 보너스 (빠르게 도달할수록 추가 보상)
-                steps_used = self.state.step_count
-                max_steps = 100  # 평균 예상 최대 스텝
-                if steps_used < max_steps:
-                    efficiency_bonus = (max_steps - steps_used) * 5.0
-                    reward += efficiency_bonus
-                
-                # 다중 로봇: 이미 도달한 경우 유지 보너스 (STAY 학습!)
-                if len(self.state.robot_positions) >= 2:
-                    reward += 50.0  # 매 스텝 유지 보너스
-            
-            # 5. 거리별 추가 보너스 (매우 가까울 때 더 큰 보상)
-            if total_dist <= 2:
-                reward += 50.0  # 거의 다 왔을 때 추가 보상
-            elif total_dist <= 4:
-                reward += 20.0
-            elif total_dist <= 6:
-                reward += 10.0
-            
-            # 6. 격자 경계 근처 경고 (이탈 방지)
-            if not self._is_position_safe(head) or not self._is_position_safe(tail):
-                reward -= 5.0  # 2.0 → 5.0 (더 강한 페널티)
-            
-            # 7. 장애물 근처 경고
-            if self._is_near_obstacle(head) or self._is_near_obstacle(tail):
-                reward -= 3.0  # 1.0 → 3.0
-            
-            # 8. 다중 로봇: 다른 로봇과의 거리 유지 보상 (충돌 회피!) ⭐
-            if len(self.state.robot_positions) >= 2:
-                min_distance_to_other = 999
-                for other_rid, other_pos in self.state.robot_positions.items():
-                    if other_rid == rid:
-                        continue
-                    
-                    # 나의 head/tail과 다른 로봇의 head/tail 간 거리
-                    dist_hh = abs(head[0] - other_pos["head"][0]) + abs(head[1] - other_pos["head"][1])
-                    dist_ht = abs(head[0] - other_pos["tail"][0]) + abs(head[1] - other_pos["tail"][1])
-                    dist_th = abs(tail[0] - other_pos["head"][0]) + abs(tail[1] - other_pos["head"][1])
-                    
-                    # tail-tail 거리: (0,0)에서는 예외 (충돌 면역)
-                    dist_tt = 999  # 기본값: 충분히 멀리
-                    if tail != (0, 0) and other_pos["tail"] != (0, 0):
-                        dist_tt = abs(tail[0] - other_pos["tail"][0]) + abs(tail[1] - other_pos["tail"][1])
-                    
-                    min_dist = min(dist_hh, dist_ht, dist_th, dist_tt)
-                    min_distance_to_other = min(min_distance_to_other, min_dist)
-                
-                # 거리별 보상/페널티
-                if min_distance_to_other == 0:
-                    # 충돌! (이미 fail 처리되겠지만)
-                    reward -= 500.0
-                elif min_distance_to_other == 1:
-                    # 바로 옆: 위험! 큰 페널티
-                    reward -= 30.0
-                elif min_distance_to_other == 2:
-                    # 가까움: 경고 페널티
-                    reward -= 10.0
-                elif min_distance_to_other == 3:
-                    # 적당한 거리: 약간의 보너스 (안전)
-                    reward += 5.0
-                elif min_distance_to_other >= 4:
-                    # 충분히 멀리: 보너스 (안전)
-                    reward += 2.0
-            
-            self.state.rewards[rid] = reward
-    
-    def _is_position_safe(self, pos):
-        """위치가 격자 경계에서 안전한지 확인 (1칸 여유)"""
-        x, y = pos
-        return -2 <= x <= 2 and -2 <= y <= 2
-    
-    def _is_near_obstacle(self, pos):
-        """위치가 장애물 근처인지 확인 (1칸 이내)"""
-        x, y = pos
-        for ox, oy in self.obstacles:
-            if abs(x - ox) <= 1 and abs(y - oy) <= 1:
-                return True
-        return False
-    
-    def get_rewards(self):
-        """현재 보상 반환 (RL 학습용)"""
-        return self.state.rewards.copy()

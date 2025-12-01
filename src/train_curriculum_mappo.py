@@ -354,7 +354,7 @@ def main():
         max_grad_norm=0.5,
         device="cpu"
     )
-    agent.load("outputs/mappo_phase1_3robots.pth")
+    agent.load("outputs/mappo_phase2_4robots.pth")
     print("🔥 Phase 0 모델 로드 완료! 이제 Phase 1부터 시작합니다.")
 
     # 트레이너 생성
@@ -383,7 +383,7 @@ def main():
         print("\n❌ Phase 0 실패! 협력 학습이 제대로 되지 않았습니다.")
         print("   하이퍼파라미터를 재조정하거나 에피소드 수를 늘려야 합니다.")
         return
-    '''
+    
     # Phase 1: 로봇 3개, 장애물 없음 (협력 심화)
     try:
         phase1_stats, phase1_success = trainer.train_phase(
@@ -401,7 +401,7 @@ def main():
 
     if phase1_success < 0.1:
         print("\n⚠️ Phase 1 성공률 낮음. 그래도 Phase 2로 진행합니다.")
-
+    '''
     # Phase 2: 로봇 4개, 장애물 없음 (최종 협력)
     try:
         phase2_stats, phase2_success = trainer.train_phase(
@@ -419,7 +419,7 @@ def main():
 
     if phase2_success < 0.08:
         print("\n⚠️ Phase 2 성공률 낮음. 그래도 Phase 3으로 진행합니다.")
-
+    '''
     # Phase 3: 로봇 4개 + 정적 장애물 1개
     try:
         phase3_stats, phase3_success = trainer.train_phase(
@@ -483,7 +483,7 @@ def main():
     except KeyboardInterrupt:
         print("\n\n🛑 학습이 중단되었습니다. 프로그램을 종료합니다.")
         return
-
+    '''
     # 최종 요약
     print("\n" + "=" * 70)
     print("🎉 MAPPO Curriculum Learning 완료!")
